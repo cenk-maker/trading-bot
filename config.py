@@ -7,8 +7,8 @@
 # TELEGRAM
 # Nasıl alınır → KURULUM.md dosyasını oku
 # ─────────────────────────────────────────────
-TELEGRAM_TOKEN   = "8276093631:AAHEWLTe3F98B-0LuujG8bEtEuNhvkPaBsk"       # Örn: "7123456789:AAFx..."
-TELEGRAM_CHAT_ID = "1084582324"         # Örn: "123456789"
+TELEGRAM_TOKEN   = "8276093631:AAHEWLTe3F98B-0LuujG8bEtEuNhvkPaBsk"
+TELEGRAM_CHAT_ID = "1084582324"         
 
 # ─────────────────────────────────────────────
 # BİNANCE API (Sadece okuma izni yeterli!)
