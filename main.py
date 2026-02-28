@@ -29,6 +29,8 @@ from config import (
     CRYPTO_MIN_VOLUME_USDT,
     FOREX_SYMBOLS,
     BIST_SYMBOLS,
+    US_SYMBOLS,
+    INDEX_SYMBOLS,
     SIGNAL_COOLDOWN_HOURS,
 )
 
@@ -214,7 +216,7 @@ def analyze(symbol: str, df_4h: pd.DataFrame,
 
 
 def format_msg(s: dict) -> str:
-    icons = {"crypto": "₿", "forex": "💱", "bist": "🇹🇷", "commodity": "🥇"}
+    icons = {"crypto": "₿", "forex": "💱", "bist": "🇹🇷", "commodity": "🥇", "us": "🇺🇸", "index": "🌍"}
     icon  = icons.get(s["market"], "📊")
     d     = "🟢 LONG" if s["direction"] == "long" else "🔴 SHORT"
     conf  = "🔥 GÜÇLÜ (OB İçinde)" if s["in_ob"] else "✅ NORMAL"
@@ -379,7 +381,7 @@ async def main():
     exchange = get_exchange()
 
     # Başlangıç mesajı
-    total = len(CRYPTO_WHITELIST) + len(FOREX_SYMBOLS) + len(BIST_SYMBOLS)
+    total = len(CRYPTO_WHITELIST) + len(FOREX_SYMBOLS) + len(BIST_SYMBOLS) + len(US_SYMBOLS) + len(INDEX_SYMBOLS)
     await send_telegram(
         f"🤖 <b>Trading Signal Bot Aktif!</b>\n\n"
         f"📊 Taranan piyasalar:\n"
@@ -412,6 +414,14 @@ async def main():
             # 3. BIST
             bist_sigs = await scan_bist()
             all_signals.extend(bist_sigs)
+
+            # 4. ABD Hisseleri
+            us_sigs = await scan_us()
+            all_signals.extend(us_sigs)
+
+            # 5. Dünya Endeksleri
+            index_sigs = await scan_indices()
+            all_signals.extend(index_sigs)
 
             # Güçlü sinyalleri önce gönder
             all_signals.sort(key=lambda x: x["in_ob"], reverse=True)
@@ -447,3 +457,45 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+async def scan_us() -> list:
+    signals = []
+    log.info(f"🔍 ABD Hisseleri taranıyor: {len(US_SYMBOLS)} sembol")
+    for sym in US_SYMBOLS:
+        df_4h  = yf_df(sym, "60d", "1d")
+        df_1h  = yf_df(sym, "30d", "1h")
+        df_15m = yf_df(sym, "5d",  "15m")
+
+        if df_4h is None or df_1h is None or df_15m is None:
+            continue
+
+        sig = analyze(sym, df_4h, df_1h, df_15m, "us")
+        if sig:
+            signals.append(sig)
+            log.info(f"  ✅ SİNYAL: {sym} {sig['direction'].upper()}")
+
+        await asyncio.sleep(0.3)
+
+    return signals
+
+
+async def scan_indices() -> list:
+    signals = []
+    log.info(f"🔍 Endeksler taranıyor: {len(INDEX_SYMBOLS)} sembol")
+    for sym in INDEX_SYMBOLS:
+        df_4h  = yf_df(sym, "60d", "1d")
+        df_1h  = yf_df(sym, "30d", "1h")
+        df_15m = yf_df(sym, "5d",  "15m")
+
+        if df_4h is None or df_1h is None or df_15m is None:
+            continue
+
+        sig = analyze(sym.replace("^",""), df_4h, df_1h, df_15m, "index")
+        if sig:
+            signals.append(sig)
+            log.info(f"  ✅ SİNYAL: {sym} {sig['direction'].upper()}")
+
+        await asyncio.sleep(0.3)
+
+    return signals
