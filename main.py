@@ -2,24 +2,20 @@
 ═══════════════════════════════════════════════════════
   FULL MARKET SCANNER — Trading Signal Bot
   EMA 8/13 + OrderBlock + Trend Stratejisi
-  Binance (Kripto) + yFinance (Forex/Emtia/BIST)
+  Kripto + Forex + Emtia + BIST + ABD + Endeksler
 ═══════════════════════════════════════════════════════
 """
 
 import asyncio
 import logging
-import json
-import os
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
-import requests
 import ccxt
 import yfinance as yf
 import telegram
 from telegram.constants import ParseMode
 
-# ── Config ──────────────────────────────────────────
 from config import (
     TELEGRAM_TOKEN, TELEGRAM_CHAT_ID,
     BINANCE_API_KEY, BINANCE_SECRET_KEY,
@@ -41,8 +37,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# Sinyal geçmişi — aynı sinyali tekrar gönderme
-signal_history: dict = {}  # {symbol_direction: datetime}
+signal_history: dict = {}
 
 
 # ════════════════════════════════════════════════════
@@ -51,7 +46,6 @@ signal_history: dict = {}  # {symbol_direction: datetime}
 async def send_telegram(msg: str):
     try:
         bot = telegram.Bot(token=TELEGRAM_TOKEN)
-        # Uzun mesajları böl
         if len(msg) > 4000:
             msg = msg[:4000]
         await bot.send_message(
@@ -64,14 +58,13 @@ async def send_telegram(msg: str):
 
 
 # ════════════════════════════════════════════════════
-# TEKNİK ANALİZ FONKSİYONLARI
+# TEKNİK ANALİZ
 # ════════════════════════════════════════════════════
 def ema(series: pd.Series, period: int) -> pd.Series:
     return series.ewm(span=period, adjust=False).mean()
 
 
 def get_trend(df: pd.DataFrame) -> str:
-    """4H verisinde EMA 8/13 trend yönü"""
     if len(df) < 20:
         return "neutral"
     e8  = ema(df["close"], 8)
@@ -85,12 +78,10 @@ def get_trend(df: pd.DataFrame) -> str:
 
 
 def check_crossover(df: pd.DataFrame) -> str:
-    """15M verisinde son EMA 8/13 kesişimi"""
     if len(df) < 15:
         return "none"
     e8  = ema(df["close"], 8)
     e13 = ema(df["close"], 13)
-    # Son 3 mumda kesişim ara
     for i in range(-1, -4, -1):
         prev = i - 1
         if e8.iloc[prev] <= e13.iloc[prev] and e8.iloc[i] > e13.iloc[i]:
@@ -101,34 +92,32 @@ def check_crossover(df: pd.DataFrame) -> str:
 
 
 def find_orderblock(df: pd.DataFrame, direction: str) -> dict | None:
-    """1H verisinde son geçerli OrderBlock"""
     if len(df) < 10:
         return None
     avg_body = df["close"].sub(df["open"]).abs().rolling(20).mean()
-    
+
     for i in range(len(df) - 2, max(len(df) - 40, 1), -1):
         curr = df.iloc[i]
         prev = df.iloc[i - 1]
         body_curr = abs(curr["close"] - curr["open"])
-        
+
         if direction == "long":
-            is_impulse = curr["close"] > curr["open"] and body_curr > avg_body.iloc[i] * 1.5
+            is_impulse   = curr["close"] > curr["open"] and body_curr > avg_body.iloc[i] * 1.5
             is_ob_candle = prev["close"] < prev["open"]
             if is_impulse and is_ob_candle:
                 ob_top    = max(prev["open"], prev["close"])
                 ob_bottom = min(prev["open"], prev["close"])
-                # OB fiyatın üzerinde mi? (anlamlı OB)
                 if ob_bottom < df["close"].iloc[-1] * 1.05:
-                    return {"top": ob_top, "bottom": ob_bottom, "index": i - 1}
+                    return {"top": ob_top, "bottom": ob_bottom}
 
         elif direction == "short":
-            is_impulse = curr["close"] < curr["open"] and body_curr > avg_body.iloc[i] * 1.5
+            is_impulse   = curr["close"] < curr["open"] and body_curr > avg_body.iloc[i] * 1.5
             is_ob_candle = prev["close"] > prev["open"]
             if is_impulse and is_ob_candle:
                 ob_top    = max(prev["open"], prev["close"])
                 ob_bottom = min(prev["open"], prev["close"])
                 if ob_top > df["close"].iloc[-1] * 0.95:
-                    return {"top": ob_top, "bottom": ob_bottom, "index": i - 1}
+                    return {"top": ob_top, "bottom": ob_bottom}
     return None
 
 
@@ -140,13 +129,12 @@ def price_in_ob(price: float, ob: dict) -> bool:
 
 
 def calculate_targets(price: float, direction: str, ob: dict | None) -> tuple:
-    """Stop Loss ve Take Profit hesapla"""
     if direction == "long":
-        sl = ob["bottom"] * 0.998 if ob else price * 0.985
+        sl  = ob["bottom"] * 0.998 if ob else price * 0.985
         tp1 = price + (price - sl) * 1.5
         tp2 = price + (price - sl) * 3.0
     else:
-        sl = ob["top"] * 1.002 if ob else price * 1.015
+        sl  = ob["top"] * 1.002 if ob else price * 1.015
         tp1 = price - (sl - price) * 1.5
         tp2 = price - (sl - price) * 3.0
     return round(sl, 6), round(tp1, 6), round(tp2, 6)
@@ -155,17 +143,6 @@ def calculate_targets(price: float, direction: str, ob: dict | None) -> tuple:
 # ════════════════════════════════════════════════════
 # SİNYAL OLUŞTUR
 # ════════════════════════════════════════════════════
-def check_volume(df: pd.DataFrame) -> bool:
-    """Son mumun hacmi 20 mumun ortalamasının üzerinde mi?"""
-    if "volume" not in df.columns or len(df) < 20:
-        return True
-    avg_vol  = df["volume"].rolling(20).mean().iloc[-1]
-    last_vol = df["volume"].iloc[-1]
-    if avg_vol == 0 or pd.isna(avg_vol):
-        return True
-    return bool(last_vol >= avg_vol)
-
-
 def analyze(symbol: str, df_4h: pd.DataFrame,
             df_1h: pd.DataFrame, df_15m: pd.DataFrame,
             market: str) -> dict | None:
@@ -190,7 +167,6 @@ def analyze(symbol: str, df_4h: pd.DataFrame,
     in_ob = price_in_ob(price, ob)
     sl, tp1, tp2 = calculate_targets(price, direction, ob)
 
-    # Sinyal cooldown kontrolü
     key = f"{symbol}_{direction}"
     if key in signal_history:
         elapsed = datetime.now() - signal_history[key]
@@ -216,10 +192,17 @@ def analyze(symbol: str, df_4h: pd.DataFrame,
 
 
 def format_msg(s: dict) -> str:
-    icons = {"crypto": "₿", "forex": "💱", "bist": "🇹🇷", "commodity": "🥇", "us": "🇺🇸", "index": "🌍"}
-    icon  = icons.get(s["market"], "📊")
-    d     = "🟢 LONG" if s["direction"] == "long" else "🔴 SHORT"
-    conf  = "🔥 GÜÇLÜ (OB İçinde)" if s["in_ob"] else "✅ NORMAL"
+    icons = {
+        "crypto":    "₿",
+        "forex":     "💱",
+        "bist":      "🇹🇷",
+        "commodity": "🥇",
+        "us":        "🇺🇸",
+        "index":     "🌍",
+    }
+    icon = icons.get(s["market"], "📊")
+    d    = "🟢 LONG" if s["direction"] == "long" else "🔴 SHORT"
+    conf = "🔥 GÜÇLÜ (OB İçinde)" if s["in_ob"] else "✅ NORMAL"
     ob_str = ""
     if s["ob"]:
         ob_str = f"\n📦 OB Bölgesi: {s['ob']['bottom']:.5g} — {s['ob']['top']:.5g}"
@@ -245,18 +228,17 @@ def format_msg(s: dict) -> str:
 # VERİ ÇEKME
 # ════════════════════════════════════════════════════
 def get_exchange():
-    exchange = ccxt.binance({
+    return ccxt.binance({
         'apiKey': BINANCE_API_KEY,
         'secret': BINANCE_SECRET_KEY,
         'enableRateLimit': True,
         'options': {'defaultType': 'spot'},
     })
-    return exchange
+
 
 def binance_df(exchange, symbol: str, interval: str, limit=100) -> pd.DataFrame | None:
     try:
-        # ccxt format: "BTC/USDT" değil "BTCUSDT" → dönüştür
-        sym = symbol[:len(symbol)-4] + "/USDT" if symbol.endswith("USDT") else symbol
+        sym = symbol[:-4] + "/USDT" if symbol.endswith("USDT") else symbol
         ohlcv = exchange.fetch_ohlcv(sym, interval, limit=limit)
         df = pd.DataFrame(ohlcv, columns=["ts","open","high","low","close","vol"])
         for col in ["open","high","low","close"]:
@@ -282,7 +264,6 @@ def yf_df(symbol: str, period: str, interval: str) -> pd.DataFrame | None:
 
 
 def get_binance_symbols(exchange) -> list[str]:
-    """Hacme göre filtrelenmiş tüm USDT çiftleri"""
     try:
         tickers = exchange.fetch_tickers()
         symbols = []
@@ -291,9 +272,7 @@ def get_binance_symbols(exchange) -> list[str]:
                 continue
             vol = data.get("quoteVolume") or 0
             if vol >= CRYPTO_MIN_VOLUME_USDT:
-                # BTCUSDT formatına çevir
                 symbols.append(sym.replace("/", ""))
-        symbols.sort(key=lambda s: tickers.get(s[:len(s)-4]+"/USDT", {}).get("quoteVolume", 0) or 0, reverse=True)
         log.info(f"Binance: {len(symbols)} USDT çifti taranacak")
         return symbols
     except Exception as e:
@@ -307,8 +286,8 @@ def get_binance_symbols(exchange) -> list[str]:
 async def scan_crypto(exchange) -> list:
     signals = []
     symbols = get_binance_symbols(exchange) if CRYPTO_SCAN_ALL else CRYPTO_WHITELIST
-
     log.info(f"🔍 Kripto taranıyor: {len(symbols)} sembol")
+
     for i, sym in enumerate(symbols):
         df_4h  = binance_df(exchange, sym, "4h",  120)
         df_1h  = binance_df(exchange, sym, "1h",   80)
@@ -328,18 +307,19 @@ async def scan_crypto(exchange) -> list:
     return signals
 
 
-async def scan_forex(client=None) -> list:
+async def scan_forex() -> list:
     signals = []
     log.info(f"🔍 Forex/Emtia taranıyor: {len(FOREX_SYMBOLS)} sembol")
+
     for sym in FOREX_SYMBOLS:
-        df_4h  = yf_df(sym, "60d",  "4h")
-        df_1h  = yf_df(sym, "30d",  "1h")
+        df_4h  = yf_df(sym, "60d", "4h")
+        df_1h  = yf_df(sym, "30d", "1h")
         df_15m = yf_df(sym, "7d",  "15m")
 
         if df_4h is None or df_1h is None or df_15m is None:
             continue
 
-        market = "commodity" if any(x in sym for x in ["GC=F","CL=F","SI=F","NG=F"]) else "forex"
+        market = "commodity" if any(x in sym for x in ["GC=F","CL=F","SI=F","NG=F","BZ=F","HG=F","ZW=F"]) else "forex"
         sig = analyze(sym.replace("=X","").replace("=F",""), df_4h, df_1h, df_15m, market)
         if sig:
             signals.append(sig)
@@ -353,8 +333,9 @@ async def scan_forex(client=None) -> list:
 async def scan_bist() -> list:
     signals = []
     log.info(f"🔍 BIST taranıyor: {len(BIST_SYMBOLS)} hisse")
+
     for sym in BIST_SYMBOLS:
-        df_4h  = yf_df(sym, "60d", "1d")   # BIST'te 4h yok, günlük kullan
+        df_4h  = yf_df(sym, "60d", "1d")
         df_1h  = yf_df(sym, "30d", "1h")
         df_15m = yf_df(sym, "5d",  "15m")
 
@@ -371,23 +352,67 @@ async def scan_bist() -> list:
     return signals
 
 
+async def scan_us() -> list:
+    signals = []
+    log.info(f"🔍 ABD Hisseleri taranıyor: {len(US_SYMBOLS)} sembol")
+
+    for sym in US_SYMBOLS:
+        df_4h  = yf_df(sym, "60d", "1d")
+        df_1h  = yf_df(sym, "30d", "1h")
+        df_15m = yf_df(sym, "5d",  "15m")
+
+        if df_4h is None or df_1h is None or df_15m is None:
+            continue
+
+        sig = analyze(sym, df_4h, df_1h, df_15m, "us")
+        if sig:
+            signals.append(sig)
+            log.info(f"  ✅ SİNYAL: {sym} {sig['direction'].upper()}")
+
+        await asyncio.sleep(0.3)
+
+    return signals
+
+
+async def scan_indices() -> list:
+    signals = []
+    log.info(f"🔍 Endeksler taranıyor: {len(INDEX_SYMBOLS)} sembol")
+
+    for sym in INDEX_SYMBOLS:
+        df_4h  = yf_df(sym, "60d", "1d")
+        df_1h  = yf_df(sym, "30d", "1h")
+        df_15m = yf_df(sym, "5d",  "15m")
+
+        if df_4h is None or df_1h is None or df_15m is None:
+            continue
+
+        sig = analyze(sym.replace("^",""), df_4h, df_1h, df_15m, "index")
+        if sig:
+            signals.append(sig)
+            log.info(f"  ✅ SİNYAL: {sym} {sig['direction'].upper()}")
+
+        await asyncio.sleep(0.3)
+
+    return signals
+
+
 # ════════════════════════════════════════════════════
 # ANA DÖNGÜ
 # ════════════════════════════════════════════════════
 async def main():
     log.info("🚀 Bot başlatılıyor...")
 
-    # CCXT exchange
     exchange = get_exchange()
+    total = len(US_SYMBOLS) + len(FOREX_SYMBOLS) + len(BIST_SYMBOLS) + len(INDEX_SYMBOLS)
 
-    # Başlangıç mesajı
-    total = len(CRYPTO_WHITELIST) + len(FOREX_SYMBOLS) + len(BIST_SYMBOLS) + len(US_SYMBOLS) + len(INDEX_SYMBOLS)
     await send_telegram(
         f"🤖 <b>Trading Signal Bot Aktif!</b>\n\n"
         f"📊 Taranan piyasalar:\n"
         f"  ₿ Kripto (Binance USDT)\n"
         f"  💱 Forex & Emtia\n"
-        f"  🇹🇷 BIST Hisseleri\n\n"
+        f"  🇹🇷 BIST Hisseleri ({len(BIST_SYMBOLS)} hisse)\n"
+        f"  🇺🇸 ABD Hisseleri ({len(US_SYMBOLS)} sembol)\n"
+        f"  🌍 Dünya Endeksleri ({len(INDEX_SYMBOLS)} endeks)\n\n"
         f"🔍 Toplam ~{total}+ sembol\n"
         f"⏱ Her {CHECK_INTERVAL_MINUTES} dakikada taranıyor\n"
         f"📐 Strateji: EMA 8/13 + OrderBlock"
@@ -397,36 +422,29 @@ async def main():
     while True:
         try:
             scan_count += 1
-            now = datetime.now().strftime("%H:%M")
             log.info(f"\n{'═'*50}")
-            log.info(f"Tarama #{scan_count} — {now}")
+            log.info(f"Tarama #{scan_count} — {datetime.now().strftime('%H:%M')}")
 
             all_signals = []
 
-            # 1. Kripto
             crypto_sigs = await scan_crypto(exchange)
             all_signals.extend(crypto_sigs)
 
-            # 2. Forex/Emtia
             forex_sigs = await scan_forex()
             all_signals.extend(forex_sigs)
 
-            # 3. BIST
             bist_sigs = await scan_bist()
             all_signals.extend(bist_sigs)
 
-            # 4. ABD Hisseleri
             us_sigs = await scan_us()
             all_signals.extend(us_sigs)
 
-            # 5. Dünya Endeksleri
             index_sigs = await scan_indices()
             all_signals.extend(index_sigs)
 
             # Güçlü sinyalleri önce gönder
             all_signals.sort(key=lambda x: x["in_ob"], reverse=True)
 
-            log.info(f"\n{'─'*50}")
             log.info(f"✅ Toplam {len(all_signals)} sinyal bulundu")
 
             if all_signals:
@@ -457,45 +475,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-async def scan_us() -> list:
-    signals = []
-    log.info(f"🔍 ABD Hisseleri taranıyor: {len(US_SYMBOLS)} sembol")
-    for sym in US_SYMBOLS:
-        df_4h  = yf_df(sym, "60d", "1d")
-        df_1h  = yf_df(sym, "30d", "1h")
-        df_15m = yf_df(sym, "5d",  "15m")
-
-        if df_4h is None or df_1h is None or df_15m is None:
-            continue
-
-        sig = analyze(sym, df_4h, df_1h, df_15m, "us")
-        if sig:
-            signals.append(sig)
-            log.info(f"  ✅ SİNYAL: {sym} {sig['direction'].upper()}")
-
-        await asyncio.sleep(0.3)
-
-    return signals
-
-
-async def scan_indices() -> list:
-    signals = []
-    log.info(f"🔍 Endeksler taranıyor: {len(INDEX_SYMBOLS)} sembol")
-    for sym in INDEX_SYMBOLS:
-        df_4h  = yf_df(sym, "60d", "1d")
-        df_1h  = yf_df(sym, "30d", "1h")
-        df_15m = yf_df(sym, "5d",  "15m")
-
-        if df_4h is None or df_1h is None or df_15m is None:
-            continue
-
-        sig = analyze(sym.replace("^",""), df_4h, df_1h, df_15m, "index")
-        if sig:
-            signals.append(sig)
-            log.info(f"  ✅ SİNYAL: {sym} {sig['direction'].upper()}")
-
-        await asyncio.sleep(0.3)
-
-    return signals
