@@ -153,11 +153,22 @@ def calculate_targets(price: float, direction: str, ob: dict | None) -> tuple:
 # ════════════════════════════════════════════════════
 # SİNYAL OLUŞTUR
 # ════════════════════════════════════════════════════
+def check_volume(df: pd.DataFrame) -> bool:
+    """Son mumun hacmi 20 mumun ortalamasının üzerinde mi?"""
+    if "volume" not in df.columns or len(df) < 20:
+        return True
+    avg_vol  = df["volume"].rolling(20).mean().iloc[-1]
+    last_vol = df["volume"].iloc[-1]
+    if avg_vol == 0 or pd.isna(avg_vol):
+        return True
+    return bool(last_vol >= avg_vol)
+
+
 def analyze(symbol: str, df_4h: pd.DataFrame,
             df_1h: pd.DataFrame, df_15m: pd.DataFrame,
             market: str) -> dict | None:
 
-    trend     = get_trend(df_4h)
+    trend = get_trend(df_4h)
     if trend == "neutral":
         return None
 
@@ -168,9 +179,13 @@ def analyze(symbol: str, df_4h: pd.DataFrame,
     if cross != expected_cross:
         return None
 
-    ob       = find_orderblock(df_1h, direction)
-    price    = float(df_15m["close"].iloc[-1])
-    in_ob    = price_in_ob(price, ob)
+    # Hacim kontrolü — ortalama altındaysa sinyal atla
+    if not check_volume(df_15m):
+        return None
+
+    ob    = find_orderblock(df_1h, direction)
+    price = float(df_15m["close"].iloc[-1])
+    in_ob = price_in_ob(price, ob)
     sl, tp1, tp2 = calculate_targets(price, direction, ob)
 
     # Sinyal cooldown kontrolü
