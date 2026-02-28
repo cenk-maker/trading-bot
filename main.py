@@ -8,15 +8,14 @@
 
 import asyncio
 import logging
-import time
 import json
 import os
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 import requests
+import ccxt
 import yfinance as yf
-from binance.client import Client
 import telegram
 from telegram.constants import ParseMode
 
@@ -25,12 +24,12 @@ from config import (
     TELEGRAM_TOKEN, TELEGRAM_CHAT_ID,
     BINANCE_API_KEY, BINANCE_SECRET_KEY,
     CHECK_INTERVAL_MINUTES,
-    CRYPTO_SCAN_ALL,        # True = tüm USDT çiftleri
-    CRYPTO_WHITELIST,       # CRYPTO_SCAN_ALL=False ise bu liste
-    CRYPTO_MIN_VOLUME_USDT, # Düşük hacimli coinleri filtrele
+    CRYPTO_SCAN_ALL,
+    CRYPTO_WHITELIST,
+    CRYPTO_MIN_VOLUME_USDT,
     FOREX_SYMBOLS,
     BIST_SYMBOLS,
-    SIGNAL_COOLDOWN_HOURS,  # Aynı sembol için kaç saat bekle
+    SIGNAL_COOLDOWN_HOURS,
 )
 
 logging.basicConfig(
@@ -228,13 +227,21 @@ def format_msg(s: dict) -> str:
 # ════════════════════════════════════════════════════
 # VERİ ÇEKME
 # ════════════════════════════════════════════════════
-def binance_df(client: Client, symbol: str, interval: str, limit=100) -> pd.DataFrame | None:
+def get_exchange():
+    exchange = ccxt.binance({
+        'apiKey': BINANCE_API_KEY,
+        'secret': BINANCE_SECRET_KEY,
+        'enableRateLimit': True,
+        'options': {'defaultType': 'spot'},
+    })
+    return exchange
+
+def binance_df(exchange, symbol: str, interval: str, limit=100) -> pd.DataFrame | None:
     try:
-        klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
-        df = pd.DataFrame(klines, columns=[
-            "ts","open","high","low","close","vol",
-            "cts","qvol","trades","tbbv","tbqv","ignore"
-        ])
+        # ccxt format: "BTC/USDT" değil "BTCUSDT" → dönüştür
+        sym = symbol[:len(symbol)-4] + "/USDT" if symbol.endswith("USDT") else symbol
+        ohlcv = exchange.fetch_ohlcv(sym, interval, limit=limit)
+        df = pd.DataFrame(ohlcv, columns=["ts","open","high","low","close","vol"])
         for col in ["open","high","low","close"]:
             df[col] = df[col].astype(float)
         df["ts"] = pd.to_datetime(df["ts"], unit="ms")
@@ -257,21 +264,19 @@ def yf_df(symbol: str, period: str, interval: str) -> pd.DataFrame | None:
         return None
 
 
-def get_binance_symbols(client: Client) -> list[str]:
+def get_binance_symbols(exchange) -> list[str]:
     """Hacme göre filtrelenmiş tüm USDT çiftleri"""
     try:
-        tickers = client.get_ticker()
+        tickers = exchange.fetch_tickers()
         symbols = []
-        for t in tickers:
-            sym = t["symbol"]
-            if not sym.endswith("USDT"):
+        for sym, data in tickers.items():
+            if not sym.endswith("/USDT"):
                 continue
-            vol = float(t.get("quoteVolume", 0))
+            vol = data.get("quoteVolume") or 0
             if vol >= CRYPTO_MIN_VOLUME_USDT:
-                symbols.append(sym)
-        symbols.sort(key=lambda s: float(
-            next((t["quoteVolume"] for t in tickers if t["symbol"] == s), 0)
-        ), reverse=True)
+                # BTCUSDT formatına çevir
+                symbols.append(sym.replace("/", ""))
+        symbols.sort(key=lambda s: tickers.get(s[:len(s)-4]+"/USDT", {}).get("quoteVolume", 0) or 0, reverse=True)
         log.info(f"Binance: {len(symbols)} USDT çifti taranacak")
         return symbols
     except Exception as e:
@@ -282,15 +287,15 @@ def get_binance_symbols(client: Client) -> list[str]:
 # ════════════════════════════════════════════════════
 # TARAMA FONKSİYONLARI
 # ════════════════════════════════════════════════════
-async def scan_crypto(client: Client) -> list:
+async def scan_crypto(exchange) -> list:
     signals = []
-    symbols = get_binance_symbols(client) if CRYPTO_SCAN_ALL else CRYPTO_WHITELIST
+    symbols = get_binance_symbols(exchange) if CRYPTO_SCAN_ALL else CRYPTO_WHITELIST
 
     log.info(f"🔍 Kripto taranıyor: {len(symbols)} sembol")
     for i, sym in enumerate(symbols):
-        df_4h  = binance_df(client, sym, Client.KLINE_INTERVAL_4HOUR,  120)
-        df_1h  = binance_df(client, sym, Client.KLINE_INTERVAL_1HOUR,   80)
-        df_15m = binance_df(client, sym, Client.KLINE_INTERVAL_15MINUTE, 60)
+        df_4h  = binance_df(exchange, sym, "4h",  120)
+        df_1h  = binance_df(exchange, sym, "1h",   80)
+        df_15m = binance_df(exchange, sym, "15m",  60)
 
         if df_4h is None or df_1h is None or df_15m is None:
             continue
@@ -300,9 +305,8 @@ async def scan_crypto(client: Client) -> list:
             signals.append(sig)
             log.info(f"  ✅ SİNYAL: {sym} {sig['direction'].upper()}")
 
-        # Rate limit — her 5 sembolde kısa bekle
         if i % 5 == 0:
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.5)
 
     return signals
 
@@ -356,18 +360,18 @@ async def scan_bist() -> list:
 async def main():
     log.info("🚀 Bot başlatılıyor...")
 
-    # Binance client
-    client = Client(BINANCE_API_KEY, BINANCE_SECRET_KEY)
+    # CCXT exchange
+    exchange = get_exchange()
 
     # Başlangıç mesajı
-    total = len(get_binance_symbols(client)) + len(FOREX_SYMBOLS) + len(BIST_SYMBOLS)
+    total = len(CRYPTO_WHITELIST) + len(FOREX_SYMBOLS) + len(BIST_SYMBOLS)
     await send_telegram(
         f"🤖 <b>Trading Signal Bot Aktif!</b>\n\n"
         f"📊 Taranan piyasalar:\n"
         f"  ₿ Kripto (Binance USDT)\n"
         f"  💱 Forex & Emtia\n"
         f"  🇹🇷 BIST Hisseleri\n\n"
-        f"🔍 Toplam ~{total} sembol\n"
+        f"🔍 Toplam ~{total}+ sembol\n"
         f"⏱ Her {CHECK_INTERVAL_MINUTES} dakikada taranıyor\n"
         f"📐 Strateji: EMA 8/13 + OrderBlock"
     )
@@ -383,7 +387,7 @@ async def main():
             all_signals = []
 
             # 1. Kripto
-            crypto_sigs = await scan_crypto(client)
+            crypto_sigs = await scan_crypto(exchange)
             all_signals.extend(crypto_sigs)
 
             # 2. Forex/Emtia
@@ -394,7 +398,7 @@ async def main():
             bist_sigs = await scan_bist()
             all_signals.extend(bist_sigs)
 
-            # Güçlü sinyalleri (OB içinde) önce gönder
+            # Güçlü sinyalleri önce gönder
             all_signals.sort(key=lambda x: x["in_ob"], reverse=True)
 
             log.info(f"\n{'─'*50}")
@@ -407,12 +411,10 @@ async def main():
             else:
                 log.info("Sinyal yok, bekleniyor...")
 
-            # Özet istatistik (her 10 taramada bir)
             if scan_count % 10 == 0:
                 await send_telegram(
                     f"📈 <b>Bot İstatistikleri</b>\n"
                     f"Toplam tarama: {scan_count}\n"
-                    f"Aktif cooldown: {len(signal_history)} sembol\n"
                     f"Son tarama: {datetime.now().strftime('%d.%m %H:%M')}"
                 )
 
