@@ -7,15 +7,15 @@
 # TELEGRAM
 # Nasıl alınır → KURULUM.md dosyasını oku
 # ─────────────────────────────────────────────
-TELEGRAM_TOKEN   = "8276093631:AAHEWLTe3F98B-0LuujG8bEtEuNhvkPaBsk"
-TELEGRAM_CHAT_ID = "1084582324"         
+TELEGRAM_TOKEN   = "BURAYA_BOT_TOKEN_YAZ"       # Örn: "7123456789:AAFx..."
+TELEGRAM_CHAT_ID = "BURAYA_CHAT_ID_YAZ"         # Örn: "123456789"
 
 # ─────────────────────────────────────────────
 # BİNANCE API (Sadece okuma izni yeterli!)
 # Nasıl alınır → KURULUM.md dosyasını oku
 # ─────────────────────────────────────────────
-BINANCE_API_KEY    = ""
-BINANCE_SECRET_KEY = ""
+BINANCE_API_KEY    = "BURAYA_BINANCE_API_KEY"
+BINANCE_SECRET_KEY = "BURAYA_BINANCE_SECRET_KEY"
 
 # ─────────────────────────────────────────────
 # KRİPTO TARAMA AYARLARI
@@ -154,3 +154,83 @@ BIST_SYMBOLS = [
 CHECK_INTERVAL_MINUTES = 15    # Kaç dakikada bir tarasın (15 önerilir)
 SIGNAL_COOLDOWN_HOURS  = 4     # Aynı sembol için tekrar sinyal bekle (saat)
                                 # 4 = 4 saat içinde aynı sembolden sinyal gelmez
+
+# ─────────────────────────────────────────────
+# ABD HİSSELERİ
+# ─────────────────────────────────────────────
+US_SYMBOLS = [
+    # S&P 500 Devleri
+    "AAPL",   # Apple
+    "MSFT",   # Microsoft
+    "GOOGL",  # Alphabet
+    "AMZN",   # Amazon
+    "NVDA",   # Nvidia
+    "META",   # Meta
+    "BRK-B",  # Berkshire Hathaway
+    "LLY",    # Eli Lilly
+    "JPM",    # JPMorgan
+    "V",      # Visa
+    "MA",     # Mastercard
+    "UNH",    # UnitedHealth
+    "XOM",    # ExxonMobil
+    "JNJ",    # Johnson & Johnson
+    "PG",     # Procter & Gamble
+    "HD",     # Home Depot
+    "CVX",    # Chevron
+    "KO",     # Coca-Cola
+    "PEP",    # PepsiCo
+    "BAC",    # Bank of America
+    "WMT",    # Walmart
+    "DIS",    # Disney
+    "COST",   # Costco
+    # Teknoloji
+    "TSLA",   # Tesla
+    "AMD",    # AMD
+    "INTC",   # Intel
+    "NFLX",   # Netflix
+    "CRM",    # Salesforce
+    "ORCL",   # Oracle
+    "ADBE",   # Adobe
+    "QCOM",   # Qualcomm
+    "AVGO",   # Broadcom
+    "PYPL",   # PayPal
+    "UBER",   # Uber
+    "SPOT",   # Spotify
+    "PLTR",   # Palantir
+    # Finans
+    "GS",     # Goldman Sachs
+    "MS",     # Morgan Stanley
+    "WFC",    # Wells Fargo
+    "C",      # Citigroup
+    "AXP",    # American Express
+    "BLK",    # BlackRock
+    # Sağlık
+    "PFE",    # Pfizer
+    "MRNA",   # Moderna
+    "AMGN",   # Amgen
+    # Diğer
+    "BA",     # Boeing
+    "CAT",    # Caterpillar
+    "GE",     # GE Aerospace
+    "F",      # Ford
+    "GM",     # General Motors
+    "SBUX",   # Starbucks
+    "MCD",    # McDonald's
+    "NKE",    # Nike
+]
+
+# ─────────────────────────────────────────────
+# DÜNYA ENDEKSLERİ
+# ─────────────────────────────────────────────
+INDEX_SYMBOLS = [
+    "^GSPC",    # S&P 500
+    "^NDX",     # Nasdaq 100
+    "^DJI",     # Dow Jones
+    "^RUT",     # Russell 2000
+    "^FTSE",    # FTSE 100 (İngiltere)
+    "^GDAXI",   # DAX (Almanya)
+    "^FCHI",    # CAC 40 (Fransa)
+    "^N225",    # Nikkei 225 (Japonya)
+    "^HSI",     # Hang Seng (Hong Kong)
+    "XU100.IS", # BIST 100 (Türkiye)
+]
