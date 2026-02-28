@@ -1,0 +1,6 @@
+python-telegram-bot==20.7
+python-binance==1.0.19
+yfinance==0.2.36
+pandas==2.1.4
+numpy==1.26.2
+requests==2.31.0
