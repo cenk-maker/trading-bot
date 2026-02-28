@@ -181,9 +181,9 @@ def analyze(symbol: str, df_4h: pd.DataFrame,
     if cross != expected_cross:
         return None
 
-    # Hacim kontrolü — ortalama altındaysa sinyal atla
-    if not check_volume(df_15m):
-        return None
+    # Hacim kontrolü — şimdilik devre dışı
+    # if not check_volume(df_15m):
+    #     return None
 
     ob    = find_orderblock(df_1h, direction)
     price = float(df_15m["close"].iloc[-1])
