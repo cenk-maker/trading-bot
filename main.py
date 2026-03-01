@@ -8,6 +8,8 @@
 
 import asyncio
 import logging
+import json
+import os
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
@@ -410,6 +412,141 @@ async def scan_indices() -> list:
     return signals
 
 
+
+# ════════════════════════════════════════════════════
+# WIN RATE TAKİP SİSTEMİ
+# ════════════════════════════════════════════════════
+SIGNALS_FILE = "signals.json"
+
+def load_signals() -> list:
+    if os.path.exists(SIGNALS_FILE):
+        with open(SIGNALS_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+def save_signals(signals: list):
+    with open(SIGNALS_FILE, "w") as f:
+        json.dump(signals, f, ensure_ascii=False, indent=2)
+
+def record_signal(sig: dict):
+    """Yeni sinyali kaydet"""
+    signals = load_signals()
+    signals.append({
+        "id":        len(signals) + 1,
+        "symbol":    sig["symbol"],
+        "market":    sig["market"],
+        "direction": sig["direction"],
+        "entry":     sig["price"],
+        "sl":        sig["sl"],
+        "tp1":       sig["tp1"],
+        "tp2":       sig["tp2"],
+        "time":      sig["time"],
+        "status":    "OPEN",   # OPEN / TP1 / TP2 / SL / TIMEOUT
+        "exit_price": None,
+        "pnl_pct":   None,
+    })
+    save_signals(signals)
+
+async def check_open_signals(exchange):
+    """Açık sinyallerin TP/SL durumunu kontrol et"""
+    signals = load_signals()
+    updated = False
+
+    for s in signals:
+        if s["status"] != "OPEN":
+            continue
+
+        # Sadece kripto sinyalleri kontrol et
+        if s["market"] != "crypto":
+            continue
+
+        try:
+            sym = s["symbol"][:-4] + "/USDT"
+            ticker = exchange.fetch_ticker(sym)
+            price = float(ticker["last"])
+        except:
+            continue
+
+        status = None
+        if s["direction"] == "long":
+            if price <= s["sl"]:
+                status = "SL"
+            elif price >= s["tp2"]:
+                status = "TP2"
+            elif price >= s["tp1"]:
+                status = "TP1"
+        else:
+            if price >= s["sl"]:
+                status = "SL"
+            elif price <= s["tp2"]:
+                status = "TP2"
+            elif price <= s["tp1"]:
+                status = "TP1"
+
+        if status:
+            s["status"]     = status
+            s["exit_price"] = price
+            if s["direction"] == "long":
+                s["pnl_pct"] = round((price - s["entry"]) / s["entry"] * 100, 2)
+            else:
+                s["pnl_pct"] = round((s["entry"] - price) / s["entry"] * 100, 2)
+            updated = True
+
+            emoji = "✅" if status in ["TP1","TP2"] else "❌"
+            await send_telegram(
+                f"{emoji} <b>{s['symbol']} SONUÇ</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"Yön     : {'🟢 LONG' if s['direction']=='long' else '🔴 SHORT'}\n"
+                f"Giriş   : {s['entry']:.6g}\n"
+                f"Çıkış   : {price:.6g}\n"
+                f"Sonuç   : <b>{status}</b>\n"
+                f"PnL     : <b>{'+'if s['pnl_pct']>0 else ''}{s['pnl_pct']}%</b>\n"
+                f"⏰ {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+            )
+
+    if updated:
+        save_signals(signals)
+
+async def send_daily_report():
+    """Her gün saat 22:00'de günlük rapor gönder"""
+    signals = load_signals()
+    today = datetime.now().strftime("%d.%m.%Y")
+
+    # Bugünkü kapanan sinyaller
+    closed_today = [s for s in signals
+                    if s["status"] != "OPEN" and s["time"].startswith(today)]
+    open_signals = [s for s in signals if s["status"] == "OPEN"]
+
+    if not closed_today and not open_signals:
+        await send_telegram(f"📊 <b>Günlük Rapor — {today}</b>\n\nBugün sinyal gelmedi.")
+        return
+
+    wins  = [s for s in closed_today if s["status"] in ["TP1","TP2"]]
+    losses = [s for s in closed_today if s["status"] == "SL"]
+    win_rate = round(len(wins)/len(closed_today)*100, 1) if closed_today else 0
+
+    msg = f"📊 <b>Günlük Rapor — {today}</b>\n"
+    msg += f"━━━━━━━━━━━━━━━━━━━━\n"
+    msg += f"Toplam Sinyal : {len(closed_today)}\n"
+    msg += f"✅ Kazanan    : {len(wins)}\n"
+    msg += f"❌ Kaybeden   : {len(losses)}\n"
+    msg += f"🎯 Win Rate   : %{win_rate}\n"
+
+    if closed_today:
+        pnl_list = [s["pnl_pct"] for s in closed_today if s["pnl_pct"] is not None]
+        if pnl_list:
+            msg += f"━━━━━━━━━━━━━━━━━━━━\n"
+            msg += f"En İyi  : +{max(pnl_list)}%\n"
+            msg += f"En Kötü : {min(pnl_list)}%\n"
+
+    if open_signals:
+        msg += f"━━━━━━━━━━━━━━━━━━━━\n"
+        msg += f"⏳ Açık Sinyal: {len(open_signals)}\n"
+        for s in open_signals[:5]:
+            msg += f"  • {s['symbol']} {s['direction'].upper()}\n"
+
+    await send_telegram(msg)
+
 # ════════════════════════════════════════════════════
 # ANA DÖNGÜ
 # ════════════════════════════════════════════════════
@@ -446,7 +583,15 @@ async def main():
             if all_signals:
                 for sig in all_signals:
                     await send_telegram(format_msg(sig))
+                    record_signal(sig)
                     await asyncio.sleep(1.5)
+
+            # Açık sinyalleri kontrol et
+            await check_open_signals(exchange)
+
+            # Saat 22:00'de günlük rapor gönder
+            if datetime.now().hour == 22 and datetime.now().minute < 15:
+                await send_daily_report()
             else:
                 log.info("Sinyal yok, bekleniyor...")
 
