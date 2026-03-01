@@ -400,16 +400,10 @@ async def main():
     total = len(US_SYMBOLS) + len(FOREX_SYMBOLS) + len(BIST_SYMBOLS) + len(INDEX_SYMBOLS)
 
     await send_telegram(
-        f"🤖 <b>Trading Signal Bot Aktif!</b>\n\n"
-        f"📊 Taranan piyasalar:\n"
-        f"  ₿ Kripto (Binance USDT)\n"
-        f"  💱 Forex & Emtia\n"
-        f"  🇹🇷 BIST Hisseleri ({len(BIST_SYMBOLS)} hisse)\n"
-        f"  🇺🇸 ABD Hisseleri ({len(US_SYMBOLS)} sembol)\n"
-        f"  🌍 Dünya Endeksleri ({len(INDEX_SYMBOLS)} endeks)\n\n"
-        f"🔍 Toplam ~{total}+ sembol\n"
+        f"🤖 <b>Kripto Signal Bot Aktif!</b>\n\n"
+        f"₿ Binance USDT çiftleri taranıyor\n"
         f"⏱ Her {CHECK_INTERVAL_MINUTES} dakikada taranıyor\n"
-        f"📐 Strateji: EMA 8/13 + OrderBlock"
+        f"📐 Strateji: EMA 8/13 Crossover (4H Trend + 15M Tetik)"
     )
 
     scan_count = 0
@@ -423,18 +417,6 @@ async def main():
 
             crypto_sigs = await scan_crypto(exchange)
             all_signals.extend(crypto_sigs)
-
-            forex_sigs = await scan_forex()
-            all_signals.extend(forex_sigs)
-
-            bist_sigs = await scan_bist()
-            all_signals.extend(bist_sigs)
-
-            us_sigs = await scan_us()
-            all_signals.extend(us_sigs)
-
-            index_sigs = await scan_indices()
-            all_signals.extend(index_sigs)
 
             # Güçlü sinyalleri önce gönder
             all_signals.sort(key=lambda x: x["in_ob"], reverse=True)
