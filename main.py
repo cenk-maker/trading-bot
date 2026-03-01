@@ -162,10 +162,10 @@ def analyze(symbol: str, df_4h: pd.DataFrame,
     # if not check_volume(df_15m):
     #     return None
 
-    ob    = find_orderblock(df_1h, direction)
     price = float(df_15m["close"].iloc[-1])
-    in_ob = price_in_ob(price, ob)
-    sl, tp1, tp2 = calculate_targets(price, direction, ob)
+    in_ob = False
+    ob    = None
+    sl, tp1, tp2 = calculate_targets(price, direction, None)
 
     key = f"{symbol}_{direction}"
     if key in signal_history:
@@ -202,11 +202,6 @@ def format_msg(s: dict) -> str:
     }
     icon = icons.get(s["market"], "📊")
     d    = "🟢 LONG" if s["direction"] == "long" else "🔴 SHORT"
-    conf = "🔥 GÜÇLÜ (OB İçinde)" if s["in_ob"] else "✅ NORMAL"
-    ob_str = ""
-    if s["ob"]:
-        ob_str = f"\n📦 OB Bölgesi: {s['ob']['bottom']:.5g} — {s['ob']['top']:.5g}"
-
     return (
         f"{icon} <b>{s['symbol']}</b>  |  {d}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -216,8 +211,7 @@ def format_msg(s: dict) -> str:
         f"🎯 TP2   : <b>{s['tp2']:.6g}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"📊 Trend  : {'Yukarı ⬆️' if s['trend']=='up' else 'Aşağı ⬇️'} (4H)\n"
-        f"⚡ Tetik  : EMA Crossover (15M){ob_str}\n"
-        f"🎖 Güven  : {conf}\n"
+        f"⚡ Tetik  : EMA Crossover (15M)\n"
         f"⏰ {s['time']}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"⚠️ Yatırım tavsiyesi değildir."
