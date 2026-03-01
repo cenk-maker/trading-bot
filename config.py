@@ -14,8 +14,8 @@ TELEGRAM_CHAT_ID = "1084582324"
 # BİNANCE API (Sadece okuma izni yeterli!)
 # Nasıl alınır → KURULUM.md dosyasını oku
 # ─────────────────────────────────────────────
-BINANCE_API_KEY    = "BURAYA_BINANCE_API_KEY"
-BINANCE_SECRET_KEY = "BURAYA_BINANCE_SECRET_KEY"
+BINANCE_API_KEY    = "KTVCx0fZLw455hSDMfrAOTYu5mcOZcumAbFocgdCfwUURPAQClKXTwW9JPgPCgfK"
+BINANCE_SECRET_KEY = "I23WW9kPFUJiig82GviP3oghoPTZjfHwvf8On0Uio4rjCIX9gVwnY3nbKouhMa1M"
 
 # ─────────────────────────────────────────────
 # KRİPTO TARAMA AYARLARI
