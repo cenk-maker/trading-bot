@@ -552,17 +552,23 @@ async def send_daily_report():
 # ════════════════════════════════════════════════════
 async def handle_commands():
     """Telegram komutlarını dinle: /rapor, /durum"""
-    bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    last_update_id = None
+    import requests as req
+    last_update_id = 0
 
     while True:
         try:
-            updates = await bot.get_updates(offset=last_update_id, timeout=5)
-            for update in updates:
-                last_update_id = update.update_id + 1
-                if not update.message or not update.message.text:
-                    continue
-                cmd = update.message.text.strip().lower()
+            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+            r = req.get(url, params={"offset": last_update_id, "timeout": 5}, timeout=10)
+            data = r.json()
+
+            if not data.get("ok"):
+                await asyncio.sleep(5)
+                continue
+
+            for update in data.get("result", []):
+                last_update_id = update["update_id"] + 1
+                msg = update.get("message", {})
+                cmd = msg.get("text", "").strip().lower()
 
                 if cmd == "/rapor":
                     log.info("📊 Manuel rapor istendi")
@@ -586,7 +592,7 @@ async def handle_commands():
 
         except Exception as e:
             log.warning(f"Komut handler hatası: {e}")
-        await asyncio.sleep(3)
+        await asyncio.sleep(5)
 
 
 async def main():
