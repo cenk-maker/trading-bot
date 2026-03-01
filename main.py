@@ -550,6 +550,45 @@ async def send_daily_report():
 # ════════════════════════════════════════════════════
 # ANA DÖNGÜ
 # ════════════════════════════════════════════════════
+async def handle_commands():
+    """Telegram komutlarını dinle: /rapor, /durum"""
+    bot = telegram.Bot(token=TELEGRAM_TOKEN)
+    last_update_id = None
+
+    while True:
+        try:
+            updates = await bot.get_updates(offset=last_update_id, timeout=5)
+            for update in updates:
+                last_update_id = update.update_id + 1
+                if not update.message or not update.message.text:
+                    continue
+                cmd = update.message.text.strip().lower()
+
+                if cmd == "/rapor":
+                    log.info("📊 Manuel rapor istendi")
+                    await send_daily_report()
+
+                elif cmd == "/durum":
+                    signals = load_signals()
+                    open_s  = [s for s in signals if s["status"] == "OPEN"]
+                    closed  = [s for s in signals if s["status"] != "OPEN"]
+                    wins    = [s for s in closed if s["status"] in ["TP1","TP2"]]
+                    wr = round(len(wins)/len(closed)*100,1) if closed else 0
+                    await send_telegram(
+                        f"🤖 <b>Bot Durumu</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"⏳ Açık Sinyal  : {len(open_s)}\n"
+                        f"📊 Toplam Sinyal: {len(closed)}\n"
+                        f"✅ Kazanan      : {len(wins)}\n"
+                        f"🎯 Win Rate     : %{wr}\n"
+                        f"⏰ {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+                    )
+
+        except Exception as e:
+            log.warning(f"Komut handler hatası: {e}")
+        await asyncio.sleep(3)
+
+
 async def main():
     log.info("🚀 Bot başlatılıyor...")
 
@@ -562,6 +601,9 @@ async def main():
         f"⏱ Her {CHECK_INTERVAL_MINUTES} dakikada taranıyor\n"
         f"📐 Strateji: EMA 8/13 Crossover (4H Trend + 15M Tetik)"
     )
+
+    # Komut handler'ı arka planda başlat
+    asyncio.create_task(handle_commands())
 
     scan_count = 0
     while True:
@@ -589,11 +631,12 @@ async def main():
             # Açık sinyalleri kontrol et
             await check_open_signals(exchange)
 
-            # Saat 22:00'de günlük rapor gönder
-            if datetime.now().hour == 22 and datetime.now().minute < 15:
-                await send_daily_report()
-            else:
+            if not all_signals:
                 log.info("Sinyal yok, bekleniyor...")
+
+            # Saat 19:00 UTC = 22:00 Türkiye saati
+            if datetime.now().hour == 19 and datetime.now().minute < 15:
+                await send_daily_report()
 
             if scan_count % 10 == 0:
                 await send_telegram(
