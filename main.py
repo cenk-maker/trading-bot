@@ -64,6 +64,14 @@ def ema(series: pd.Series, period: int) -> pd.Series:
     return series.ewm(span=period, adjust=False).mean()
 
 
+def rsi(series: pd.Series, period: int = 14) -> pd.Series:
+    delta = series.diff()
+    gain  = delta.clip(lower=0).rolling(period).mean()
+    loss  = (-delta.clip(upper=0)).rolling(period).mean()
+    rs    = gain / loss
+    return 100 - (100 / (1 + rs))
+
+
 def get_trend(df: pd.DataFrame) -> str:
     if len(df) < 20:
         return "neutral"
@@ -158,14 +166,26 @@ def analyze(symbol: str, df_4h: pd.DataFrame,
     if cross != expected_cross:
         return None
 
-    # Hacim kontrolü — şimdilik devre dışı
-    # if not check_volume(df_15m):
-    #     return None
+    # RSI Filtresi
+    rsi_val = rsi(df_15m["close"], 14).iloc[-1]
+    if direction == "long"  and not (30 < rsi_val < 65):
+        return None
+    if direction == "short" and not (35 < rsi_val < 70):
+        return None
 
     price = float(df_15m["close"].iloc[-1])
     in_ob = False
     ob    = None
-    sl, tp1, tp2 = calculate_targets(price, direction, None)
+
+    # Backtest ile optimize edildi: SL%1 TP1:%2 TP2:%4
+    if direction == "long":
+        sl  = round(price * 0.990, 6)
+        tp1 = round(price * 1.020, 6)
+        tp2 = round(price * 1.040, 6)
+    else:
+        sl  = round(price * 1.010, 6)
+        tp1 = round(price * 0.980, 6)
+        tp2 = round(price * 0.960, 6)
 
     key = f"{symbol}_{direction}"
     if key in signal_history:
