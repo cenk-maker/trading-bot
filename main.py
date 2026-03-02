@@ -574,6 +574,31 @@ async def handle_commands():
                     log.info("📊 Manuel rapor istendi")
                     await send_daily_report()
 
+                elif cmd == "/gecmis":
+                    signals = load_signals()
+                    closed = [s for s in signals if s["status"] != "OPEN"]
+                    last100 = closed[-100:] if len(closed) > 100 else closed
+
+                    if not last100:
+                        await send_telegram("📋 Henüz kapanan işlem yok.")
+                    else:
+                        # Her 20 işlemde bir mesaj gönder
+                        chunks = [last100[i:i+20] for i in range(0, len(last100), 20)]
+                        for idx, chunk in enumerate(chunks):
+                            wins = len([s for s in chunk if s["status"] in ["TP1","TP2"]])
+                            msg = f"📋 <b>İşlem Geçmişi ({idx*20+1}-{idx*20+len(chunk)})</b>\n"
+                            msg += "━━━━━━━━━━━━━━━━━━━━\n"
+                            for s in chunk:
+                                e = "✅" if s["status"] in ["TP1","TP2"] else "❌"
+                                pnl = f"+{s['pnl_pct']}%" if s['pnl_pct'] and s['pnl_pct'] > 0 else f"{s['pnl_pct']}%"
+                                d = "L" if s["direction"] == "long" else "S"
+                                msg += f"{e} {s['symbol']} {d} → {s['status']} {pnl}\n"
+                            wr = round(wins/len(chunk)*100, 1)
+                            msg += f"━━━━━━━━━━━━━━━━━━━━\n"
+                            msg += f"Win Rate: %{wr}"
+                            await send_telegram(msg)
+                            await asyncio.sleep(1)
+
                 elif cmd == "/durum":
                     signals = load_signals()
                     open_s  = [s for s in signals if s["status"] == "OPEN"]
