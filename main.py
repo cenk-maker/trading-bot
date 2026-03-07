@@ -154,7 +154,7 @@ def calculate_targets(price: float, direction: str, ob: dict | None) -> tuple:
 # SİNYAL OLUŞTUR
 # ════════════════════════════════════════════════════
 def analyze(symbol: str, df_4h: pd.DataFrame,
-            df_1h: pd.DataFrame, df_15m: pd.DataFrame,
+            df_1h: pd.DataFrame, df_1h_trigger: pd.DataFrame,
             market: str) -> dict | None:
 
     trend = get_trend(df_4h)
@@ -162,20 +162,20 @@ def analyze(symbol: str, df_4h: pd.DataFrame,
         return None
 
     direction = "long" if trend == "up" else "short"
-    cross     = check_crossover(df_15m)
+    cross     = check_crossover(df_1h_trigger)
 
     expected_cross = "bullish" if direction == "long" else "bearish"
     if cross != expected_cross:
         return None
 
     # RSI Filtresi
-    rsi_val = rsi(df_15m["close"], 14).iloc[-1]
+    rsi_val = rsi(df_1h_trigger["close"], 14).iloc[-1]
     if direction == "long"  and not (30 < rsi_val < 65):
         return None
     if direction == "short" and not (35 < rsi_val < 70):
         return None
 
-    price = float(df_15m["close"].iloc[-1])
+    price = float(df_1h_trigger["close"].iloc[-1])
     in_ob = False
     ob    = None
 
@@ -305,14 +305,13 @@ async def scan_crypto(exchange) -> list:
     log.info(f"🔍 Kripto taranıyor: {len(symbols)} sembol")
 
     for i, sym in enumerate(symbols):
-        df_4h  = binance_df(exchange, sym, "4h",  120)
-        df_1h  = binance_df(exchange, sym, "1h",   80)
-        df_15m = binance_df(exchange, sym, "15m",  60)
+        df_4h = binance_df(exchange, sym, "4h", 120)
+        df_1h = binance_df(exchange, sym, "1h",  80)
 
-        if df_4h is None or df_1h is None or df_15m is None:
+        if df_4h is None or df_1h is None:
             continue
 
-        sig = analyze(sym, df_4h, df_1h, df_15m, "crypto")
+        sig = analyze(sym, df_4h, df_1h, df_1h, "crypto")
         if sig:
             signals.append(sig)
             log.info(f"  ✅ SİNYAL: {sym} {sig['direction'].upper()}")
