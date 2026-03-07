@@ -151,7 +151,7 @@ BIST_SYMBOLS = [
 # ─────────────────────────────────────────────
 # BOT ÇALIŞMA AYARLARI
 # ─────────────────────────────────────────────
-CHECK_INTERVAL_MINUTES = 15    # Kaç dakikada bir tarasın (15 önerilir)
+CHECK_INTERVAL_MINUTES = 60    # Kaç dakikada bir tarasın (15 önerilir)
 SIGNAL_COOLDOWN_HOURS  = 4     # Aynı sembol için tekrar sinyal bekle (saat)
                                 # 4 = 4 saat içinde aynı sembolden sinyal gelmez
 
